@@ -1,0 +1,82 @@
+version: '3.8'
+
+services:
+  gitlab-server:
+    image: gitlab/gitlab-ee:latest
+    container_name: gitlab-server
+    restart: always
+    environment:
+      GITLAB_OMNIBUS_CONFIG: |
+        external_url 'https://${HOSTNAME}:${PORT}'
+        registry_external_url 'https://${HOSTNAME}:${REGISTRY_PORT}'
+        nginx['listen_port'] = ${PORT}
+        nginx['listen_https'] = true
+        registry_nginx['listen_port'] = ${REGISTRY_PORT}
+        registry_nginx['listen_https'] = true
+        registry_nginx['ssl_certificate'] = "/etc/gitlab/ssl/${HOSTNAME}.crt"
+        registry_nginx['ssl_certificate_key'] = "/etc/gitlab/ssl/${HOSTNAME}.key"
+        gitlab_rails['initial_root_email'] = '${GITLAB_ROOT_EMAIL}'
+        gitlab_rails['initial_root_password'] = '${GITLAB_ROOT_PASSWORD}'
+        gitlab_rails['initial_shared_runners_registration_token'] = '${TOKEN}'
+    volumes:
+      - /srv/gitlab/config:/etc/gitlab
+      - /srv/gitlab/logs:/var/log/gitlab
+      - /srv/gitlab/data:/var/opt/gitlab
+      - /srv/gitlab/ssl:/etc/gitlab/ssl:ro
+    ports:
+      - "${PORT}:${PORT}"
+      - "${REGISTRY_PORT}:${REGISTRY_PORT}"
+      - "2222:22"
+    networks:
+      gitlab-network:
+        aliases:
+          - gitlab.local
+    healthcheck:
+      test: ["CMD-SHELL", "curl -k -s https://${HOSTNAME}:${PORT}/users/sign_in || exit 1"]
+      interval: 60s
+      timeout: 3s
+      retries: 5
+
+  gitlab-runner:
+    image: gitlab/gitlab-runner:latest
+    container_name: gitlab-runner
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /srv/gitlab-runner:/etc/gitlab-runner
+      - /srv/gitlab-runner/certs:/etc/gitlab-runner/certs:ro
+    depends_on:
+      gitlab-server:
+        condition: service_healthy
+    networks:
+      - gitlab-network
+
+  register-gitlab-runner:
+    image: gitlab/gitlab-runner:latest
+    command:
+      - register
+      - --non-interactive
+      - --locked=false
+      - --run-untagged
+      - --name=GitLab Runner
+      - --tag-list=docker,dind
+      - --executor=docker
+      - --docker-privileged=true 
+      - --docker-image=docker:stable
+      - --docker-volumes=/var/run/docker.sock:/var/run/docker.sock
+      - --docker-network-mode=gitlab-network
+    environment:
+      - CI_SERVER_URL=https://${HOSTNAME}:${PORT}
+      - REGISTRATION_TOKEN=${TOKEN}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /srv/gitlab-runner:/etc/gitlab-runner
+      - /srv/gitlab/ssl:/etc/gitlab-runner/certs:ro
+    depends_on:
+      - gitlab-server
+    networks:
+      - gitlab-network
+
+networks:
+  gitlab-network:
+    name: gitlab-network

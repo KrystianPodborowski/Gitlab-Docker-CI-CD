@@ -3,11 +3,11 @@ image: docker:24.0.5
 services:
   - name: docker:24.0.5-dind
     command: ["--insecure-registry=$REGISTRY_URL"]
-  # Uwaga: dind wymaga `privileged = true` w konfiguracji runnera
+  # Attention: dind require `privileged = true` in runner configuration
 
 variables:
   IMAGE: myapp:$CI_COMMIT_SHA
-  DOCKER_TLS_CERTDIR: ""  # wymagane by uniknąć problemów z TLS w dind
+  DOCKER_TLS_CERTDIR: ""  # required to avoid TLS issues in dind
 
 stages:
   - build
